@@ -1,0 +1,409 @@
+################################################################################
+# MGMT 590 Using R for Analytics
+# Team Final Project
+#
+# Team #:9
+# Alionso Huizar, Karin Campbell, Logan B Nelson
+# 
+# 
+# 
+################################################################################
+################################################################################
+################################################################################
+# Libraries needed for use of this code.
+# 
+library(dplyr)
+library(ggplot2)
+library(caret)
+library(shiny)
+library(h2o)
+# 
+# 
+# 
+# 
+# Data source:
+# 
+# myUrl <- "https://www.kaggle.com/datasets/maxhorowitz/nflplaybyplay2009to2016/download"
+# INSTRUCTIONS: Use the above link to get a download of the data set needed for 
+# This project. It will facilitate a download of an compressed/zipped folder
+# named "Archive". From there, the user can unzip the folder using any normal 
+# zipping function like 7zip. Be sure to take the "NFL Play by Play 2009-2016 (v3)"
+# data and paste it in the same folder as this code. As a secondary measure,
+# you can run the below to confirm the working directory is the same as where 
+# the data is stored. You'll have to uncomment the code below for it to work.
+# 
+# getwd()
+# 
+# Alternatively, you can store your code in the below path (or one of your choosing)
+# for it to load.
+# 
+# setwd("~/Downloads")
+# 
+data_source = read.csv(file = "NFL Play by Play 2009-2016 (v3).csv", header = T, sep = ",")
+# 
+# 
+################################################################################
+# App code
+################################################################################
+# 
+# First we set up the UI section of the code that allows the user to input the
+# settings they prefer for the data reporting.
+# 
+ui <- fluidPage(
+  headerPanel('Fantasy Football Support Statistics'),
+  sidebarPanel(
+    textOutput("start"),
+    selectInput(inputId = "team", 
+              label = "Please start by selecting a team on offense", 
+              choices = unique(data_source$posteam),
+              selected = "IND"),
+    sliderInput(inputId = "year", 
+              label = "Select range of years", 
+              min = 2009, max = 2016, value = c(2012,2016),
+              sep = ""),
+    actionButton(inputId = "button",
+                 label = "Go")
+  ),
+  mainPanel(
+    textOutput("text"),
+    tableOutput("table")
+  ),
+  fluidRow(
+    column(width = 12, plotOutput("scatter"))),
+
+  sidebarPanel(  
+  selectInput(inputId = "type", 
+              label = "Please select a type of offensive play", 
+              choices = c("Run","Pass", "Field Goal"),
+              selected = "Run"),
+  radioButtons(inputId = "points", 
+              label = "Did the plays result in points?", 
+              choices = c("Yes","No", "I want to see all plays"),
+              selected = "I want to see all plays")
+  ),
+  mainPanel(
+  plotOutput("box")
+  ),
+  fluidRow(
+    column(width = 4, tableOutput("players")),
+    column(width = 4, tableOutput("receivers")),
+    column(width = 4, tableOutput("result")))
+)
+# 
+# 
+# Next we add the code to make the server fuction in accordance with the choices of
+# the user.
+# 
+# 
+server <- function(input, output) {
+  
+  rs <- reactiveValues()
+  rs$d <- data_source
+  
+  output$start <- renderText({ 
+    paste("Select Team and Year and click \"Go\".")
+  })
+  
+   observeEvent(input$button, {
+     tmp <- data_source %>%
+       mutate(Year = format(as.Date(data_source$Date, format="%Y-%m-%d"),"%Y")) %>%
+       filter(posteam == input$team) %>%
+       filter(Year >= input$year[1] & Year <= input$year[2])
+     rs$d <- tmp
+     })
+
+    output$scatter <- renderPlot({
+      myDf2 <- rs$d
+      ggplot(myDf2, aes(x = as.numeric(unlist(myDf2[,"Yards.Gained"])), 
+                        y = as.numeric(unlist(myDf2[,"AirYards"])))) + 
+      geom_point() + 
+      ggtitle("Plot of Air Yards vs Total Yards Gained") + 
+      xlab("Total Yards Gained") + 
+      ylab("Air Yards")
+  })
+  
+  output$box <- renderPlot({
+    myDf <- rs$d    
+
+    if (input$points == "Yes") {
+      myDf <- myDf %>% filter(Touchdown == 1 | FieldGoalResult == "Good")
+      if (input$type == "Run") {ggplot(myDf, aes(x = RunLocation, y = Yards.Gained, fill = RunLocation)) + 
+          geom_boxplot() + 
+          xlab("Running Location") + 
+          ylab("Yards Gained") + 
+          ggtitle("Boxplot of Running Yards by Location")
+      } else if (input$type == "Pass") {
+        ggplot(myDf, aes(x = PassLocation, y = AirYards, color = PassLocation)) + 
+          geom_boxplot() + 
+          xlab("Passing Location") + 
+          ylab("Pass Yards") + 
+          ggtitle("Boxplot of Passing Yards by Location")
+      } else {
+        ggplot(myDf, aes(x = FieldGoalResult, y = FieldGoalDistance)) + 
+          geom_boxplot(color = "darkblue", fill = "blue") + 
+          xlab("Field Goal Result") + 
+          ylab("Field Goal Distance") + 
+          ggtitle("Boxplot of Field Goal Distance by Result")
+      }
+    } else if (input$points == "No") {
+      myDf <- myDf %>% filter(Touchdown == 0 | FieldGoalResult != "Good")
+      if (input$type == "Run") {ggplot(myDf, aes(x = RunLocation, y = Yards.Gained, fill = RunLocation)) + 
+          geom_boxplot() + 
+          xlab("Running Location") + 
+          ylab("Yards Gained") + 
+          ggtitle("Boxplot of Running Yards by Location")
+      } else if (input$type == "Pass") {
+        ggplot(myDf, aes(x = PassLocation, y = AirYards, color = PassLocation)) + 
+          geom_boxplot() + 
+          xlab("Passing Location") + 
+          ylab("Pass Yards") + 
+          ggtitle("Boxplot of Passing Yards by Location")
+      } else {
+        ggplot(myDf, aes(x = FieldGoalResult, y = FieldGoalDistance)) + 
+          geom_boxplot(color = "darkblue", fill = "blue") + 
+          xlab("Field Goal Result") + 
+          ylab("Field Goal Distance") + 
+          ggtitle("Boxplot of Field Goal Distance by Result")
+      }
+    } else{
+      if (input$type == "Run") {ggplot(myDf, aes(x = RunLocation, y = Yards.Gained, fill = RunLocation)) + 
+          geom_boxplot() + 
+          xlab("Running Location") + 
+          ylab("Yards Gained") + 
+          ggtitle("Boxplot of Running Yards by Location")
+      } else if (input$type == "Pass") {
+        ggplot(myDf, aes(x = PassLocation, y = AirYards, color = PassLocation)) + 
+          geom_boxplot() + 
+          xlab("Passing Location") + 
+          ylab("Pass Yards") + 
+          ggtitle("Boxplot of Passing Yards by Location")
+      } else {
+        ggplot(myDf, aes(x = FieldGoalResult, y = FieldGoalDistance)) + 
+          geom_boxplot(color = "darkblue", fill = "blue") + 
+          xlab("Field Goal Result") + 
+          ylab("Field Goal Distance") + 
+          ggtitle("Boxplot of Field Goal Distance by Result")
+      }
+    }    
+  })
+  
+  output$text <- renderText({ 
+    "Data below is based on all games played in 2009 by the team selected above."
+  })   
+  
+  output$table <- renderTable({
+    myDf3 <- rs$d
+    myDf3 %>% 
+      select(Date,GameID,qtr,posteam,Yards.Gained,AirYards,Touchdown,FieldGoalResult)
+
+      if (input$points == "Yes") {
+      myDf3 <- myDf3 %>%
+        filter(Touchdown == 1 | FieldGoalResult == "Good") %>%
+        group_by(qtr) %>%
+        summarise(across(Yards.Gained:Touchdown, mean))
+      colnames(myDf3) <- c("Quarter", "Avg Yards Gained","Avg Yards Thrown",
+                           "Avg Touchdowns")
+      myDf3     
+    } else if (input$points == "No") {
+      myDf3 <- myDf3 %>% 
+        filter(Touchdown == 0 | FieldGoalResult != "Good") %>%
+        group_by(qtr) %>%
+        summarise(across(Yards.Gained:Touchdown, mean))
+      colnames(myDf3) <- c("Quarter", "Avg Yards Gained","Avg Yards Thrown",
+                           "Avg Touchdowns")
+      myDf3
+    } else{
+      myDf3 <- myDf3 %>%
+        group_by(qtr) %>%
+        summarise(across(Yards.Gained:Touchdown, mean))
+      colnames(myDf3) <- c("Quarter", "Avg Yards Gained","Avg Yards Thrown",
+                           "Avg Touchdowns")
+      myDf3
+    }
+   })
+ 
+ output$players <- renderTable({
+    myDf4 <- rs$d
+    myDf4 %>%
+     select(Date,GameID,posteam,PlayType,Rusher, Passer, Touchdown, FieldGoalResult)
+   
+   if (input$points == "Yes") {
+     myDf4 <- myDf4 %>% 
+       filter(Touchdown == 1 | FieldGoalResult == "Good")
+     
+     if (input$type == "Run") {
+       myDf4 <- myDf4 %>%
+         filter(PlayType == "Run") %>% 
+         group_by(Rusher) %>%
+         summarise(Count=n()) %>%
+         mutate(freq = Count/sum(Count)) %>%
+         arrange(desc(freq)) %>%
+         filter(freq >= 0.01)
+       colnames(myDf4) <- c("Rusher", "Play Count","Frequency")
+       myDf4
+     } else if (input$type == "Pass") {
+       myDf4 <- myDf4 %>%
+         filter(PlayType == "Pass") %>% 
+         group_by(Passer) %>%
+         summarise(Count=n()) %>%
+         mutate(freq = Count/sum(Count)) %>%
+         arrange(desc(freq)) %>%
+         filter(freq >= 0.01)
+       colnames(myDf4) <- c("Passer", "Play Count","Frequency")
+       myDf4
+     } else{
+       print("No data available for kickers.")
+     }
+     
+   } else if (input$points == "No") {
+     myDf4 <- myDf4 %>% 
+       filter(Touchdown == 0 | FieldGoalResult != "Good")
+     if (input$type == "Run") {
+       myDf4 <- myDf4 %>%
+         filter(PlayType == "Run") %>% 
+         group_by(Rusher) %>%
+         summarise(Count=n()) %>%
+         mutate(freq = Count/sum(Count)) %>%
+         arrange(desc(freq)) %>%
+         filter(freq >= 0.01)
+       colnames(myDf4) <- c("Rusher", "Play Count","Frequency")
+       myDf4
+     } else if (input$type == "Pass") {
+       myDf4 <- myDf4 %>%
+         filter(PlayType == "Pass") %>% 
+         group_by(Passer) %>%
+         summarise(Count=n()) %>%
+         mutate(freq = Count/sum(Count)) %>%
+         arrange(desc(freq)) %>%
+         filter(freq >= 0.01)
+       colnames(myDf4) <- c("Passer", "Play Count","Frequency")
+       myDf4
+     } else{
+       print("No data available for kickers.")
+     }
+   } else{
+     if (input$type == "Run") {
+       myDf4 <- myDf4 %>%
+         filter(PlayType == "Run") %>% 
+         group_by(Rusher) %>%
+         summarise(Count=n()) %>%
+         mutate(freq = Count/sum(Count)) %>%
+         arrange(desc(freq)) %>%
+         filter(freq >= 0.01)
+       colnames(myDf4) <- c("Rusher", "Play Count","Frequency")
+       myDf4
+     } else if (input$type == "Pass") {
+       myDf4 <- myDf4 %>%
+         filter(PlayType == "Pass") %>% 
+         group_by(Passer) %>%
+         summarise(Count=n()) %>%
+         mutate(freq = Count/sum(Count)) %>%
+         arrange(desc(freq)) %>%
+         filter(freq >= 0.01)
+       colnames(myDf4) <- c("Passer", "Play Count","Frequency")
+       myDf4
+     } else{
+       print("No data available for kickers.")
+     }
+   }
+ })
+ 
+ output$receivers <- renderTable({
+   myDf5 <- rs$d
+   myDf5 %>%
+     select(Date,GameID,posteam,PlayType,Rusher, Passer, Receiver, Touchdown, FieldGoalResult)
+   
+   if (input$points == "Yes") {
+     myDf5 <- myDf5 %>% 
+       filter(Touchdown == 1 | FieldGoalResult == "Good")
+     
+     if (input$type == "Run") {
+       print("No Receiver data for running plays.")
+     } else if (input$type == "Pass") {
+       myDf5 <- myDf5 %>%
+         filter(Receiver != "NA") %>% 
+         group_by(Receiver) %>%
+         summarise(Count=n()) %>%
+         mutate(freq = Count/sum(Count)) %>%
+         arrange(desc(freq)) %>%
+         filter(freq >= 0.01)
+       colnames(myDf5) <- c("Receiver", "Play Count","Frequency")
+       myDf5
+     } else{
+       print("No Receiver data for Field Goals.")
+     }
+     
+   } else if (input$points == "No") {
+     myDf5 <- myDf5 %>% 
+       filter(Touchdown == 0 | FieldGoalResult != "Good")
+     
+     if (input$type == "Run") {
+       print("No Receiver data for running plays.")
+     } else if (input$type == "Pass") {
+       myDf5 <- myDf5 %>%
+         filter(Receiver != "NA") %>% 
+         group_by(Receiver) %>%
+         summarise(Count=n()) %>%
+         mutate(freq = Count/sum(Count)) %>%
+         arrange(desc(freq)) %>%
+         filter(freq >= 0.01)
+       colnames(myDf5) <- c("Receiver", "Play Count","Frequency")
+       myDf5
+     } else{
+       print("No Receiver data for Field Goals.")
+     }
+   } else{
+     if (input$type == "Run") {
+       print("No Receiver data for running plays.")
+     } else if (input$type == "Pass") {
+       myDf5 <- myDf5 %>%
+         filter(Receiver != "NA") %>% 
+         group_by(Receiver) %>%
+         summarise(Count=n()) %>%
+         mutate(freq = Count/sum(Count)) %>%
+         arrange(desc(freq)) %>%
+         filter(freq >= 0.01)
+       colnames(myDf5) <- c("Receiver", "Play Count","Frequency")
+       myDf5
+     } else{
+       print("No Receiver data for Field Goals.")
+     }
+   }
+ })
+ 
+output$result <- renderTable({
+  h2o.init(nthreads=12, max_mem_size="64g")
+  data <- as.h2o(data_source)
+  
+  y <- "Yards.Gained"                         # target variable to learn
+  x <- setdiff(names(data), y)                # feature variables are all other columns
+  parts <- h2o.splitFrame(data, 0.8, seed=99) # randomly partition data into 80/20
+  train <- parts[[1]]                         # random set of training obs
+  test <- parts[[2]]                          # random set of testing obs
+  
+  aml <- h2o.automl(x, y, data
+                    , max_runtime_secs = 5     # max time to run in seconds
+                    , max_models = 3            # max num of models
+                    , seed = 123                # for reproducibility.
+  )
+  pred <- h2o.predict(aml@leader, test)
+  preddf <- as.data.frame(pred)
+  tePred <- as.data.frame(test)
+  result <- cbind(preddf, tePred$Passer, tePred$posteam)
+  colnames(result) <- c("predict","Passer","posteam")
+  prediction <- result %>% arrange(desc(predict)) %>% top_n(50, wt = predict) %>% filter(!is.na(Passer))#%>% summarise(final = round(mean(predict),2))
+  prediction
+ })
+
+}
+
+# 
+# 
+# This is the code that knits the UI and Server together for use as a shiny app.
+# 
+# 
+
+shinyApp(ui = ui, server = server)
+
+
+
